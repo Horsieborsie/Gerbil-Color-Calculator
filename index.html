@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerbil Färguträknare V3</title>
+    <style>
+        :root { --primary: #4CAF50; --bg: #f4f7f6; --card: #ffffff; --text: #333; }
+        body { font-family: sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 10px; display: flex; justify-content: center; }
+        .app-container { width: 100%; max-width: 600px; background: var(--card); padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); box-sizing: border-box; }
+        h1 { text-align: center; font-size: 1.4rem; color: var(--primary); margin-top: 0; }
+        .parent-section { background: #f9f9f9; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid var(--primary); }
+        h2 { font-size: 1.05rem; margin: 0 0 8px 0; }
+        .selector-box { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .selector-box label { font-weight: bold; font-size: 0.85rem; white-space: nowrap; }
+        .color-pick { padding: 6px; border-radius: 5px; border: 1px solid #ccc; font-size: 0.85rem; flex-grow: 1; min-width: 0; width: 100%; background: white; color: var(--text); }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        @media(min-width: 480px) { .grid { grid-template-columns: repeat(6, 1fr); } }
+        .locus-pair { display: flex; flex-direction: column; align-items: center; background: #eee; padding: 6px; border-radius: 6px; box-sizing: border-box; }
+        .locus-label { font-size: 0.75rem; font-weight: bold; margin-bottom: 4px; text-align: center; white-space: nowrap; }
+        .select-row { display: flex; gap: 4px; width: 100%; justify-content: center; }
+        select.gene-select { width: 45%; padding: 4px 2px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.85rem; background: white; text-align: center; -webkit-appearance: none; -moz-appearance: none; appearance: none; font-weight: bold; color: var(--text); }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 1.05rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        #results { margin-top: 15px; }
+        .result-item { display: flex; justify-content: space-between; padding: 8px 6px; border-bottom: 1px solid #eee; font-size: 0.9rem; align-items: center; }
+        .color-info { display: flex; flex-direction: column; }
+        .genocode { font-size: 0.75rem; color: #666; font-family: monospace; margin-top: 2px; word-break: break-all; }
+        .percentage { font-weight: bold; color: var(--primary); margin-left: 8px; white-space: nowrap; }
+        .info-text { color: #555; font-size: 0.8rem; font-weight: bold; text-align: center; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1>Gerbil Färguträknare</h1>
+        <div class="info-text">Note: A dash (-) means the second gene does not change the colour. The calculation counts a dash as the same gene again (C- counts as CC). To include a hidden gene, type it into the box, e.g. C cb.</div>
+
+        <!-- PAPPA -->
+        <div class="parent-section">
+            <h2>Pappa (Father)</h2>
+            <div class="selector-box">
+                <label>Utgångsfärg:</label>
+                <select id="h_preset" class="color-pick" onchange="applyPreset('h')">
+                    <option value="">-- Anpassad kombination --</option>
+                </select>
+            </div>
+            <div class="grid" id="h_grid"></div>
+        </div>
+
+        <!-- MAMMA -->
+        <div class="parent-section">
+            <h2>Mamma (Mother)</h2>
+            <div class="selector-box">
+                <label>Utgångsfärg:</label>
+                <select id="m_preset" class="color-pick" onchange="applyPreset('m')">
+                    <option value="">-- Anpassad kombination --</option>
+                </select>
+            </div>
+            <div class="grid" id="m_grid"></div>
+        </div>
+
+        <button onclick="calculate()">Beräkna ungar</button>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const PRESET_GENOTYPES = {
+            "Agouti": ['A','-','C','-','D','-','E','-','G','-','P','-'],
+            "Apricot": ['A','-','C','-','D','-','e','e','g','g','p','p'],
+            "Argente": ['A','-','C','C','D','-','E','-','G','-','p','p'],
+            "Argente Cream": ['A','-','C','ch','D','-','E','-','G','-','p','p'],
+            "Black": ['a','a','C','-','D','-','E','-','G','-','P','-'],
+            "Blue (Dilute Black)": ['a','a','C','-','d','d','E','-','G','-','P','-'],
+            "Burmese": ['a','a','cb','cb','D','-','E','-','G','-','P','-'],
+            "CP Agouti": ['A','-','cb','cb','D','-','E','-','G','-','P','-'],
+            "CP DEH (BEW)": ['A','-','cb','cb','D','-','e','e','G','-','P','-'],
+            "CP Grey Agouti": ['A','-','cb','cb','D','-','E','-','g','g','P','-'],
+            "CP Nutmeg": ['a','a','cb','cb','D','-','e','e','G','-','P','-'],
+            "CP Polar Fox (BEW)": ['A','-','cb','cb','D','-','e','e','g','g','P','-'],
+            "CP Schimmel (BEW)": ['-','-','cb','cb','-','-','ef','ef','G','-','P','-'],
+            "CP Silver Nutmeg": ['a','a','cb','cb','D','-','e','e','g','g','P','-'],
+            "CP Slate": ['a','a','cb','cb','D','-','E','-','g','g','P','-'],
+            "Dark Eyed Honey (Algerian Fox)": ['A','-','C','C','D','-','e','e','G','-','P','-'],
+            "Dark Tailed White (Himalayan)": ['-','-','ch','ch','-','-','-','-','-','-','P','-'],
+            "Dilute Agouti": ['A','-','C','-','d','d','E','-','G','-','P','-'],
+            "Dilute Apricot": ['A','-','C','-','d','d','e','e','g','g','p','p'],
+            "Dilute Argente": ['A','-','C','C','d','d','E','-','G','-','p','p'],
+            "Dilute Argente Cream": ['A','-','C','ch','d','d','E','-','G','-','p','p'],
+            "Dilute Burmese": ['a','a','cb','cb','d','d','E','-','G','-','P','-'],
+            "Dilute CP Agouti": ['A','-','cb','cb','d','d','E','-','G','-','P','-'],
+            "Dilute CP DEH (BEW)": ['A','-','cb','cb','d','d','e','e','G','-','P','-'],
+            "Dilute CP Grey Agouti": ['A','-','cb','cb','d','d','E','-','g','g','P','-'],
+            "Dilute CP Nutmeg": ['a','a','cb','cb','d','d','e','e','G','-','P','-'],
+            "Dilute CP Polar Fox (BEW)": ['A','-','cb','cb','d','d','e','e','g','g','P','-'],
+            "Dilute CP Silver Nutmeg": ['a','a','cb','cb','d','d','e','e','g','g','P','-'],
+            "Dilute CP Slate": ['a','a','cb','cb','d','d','E','-','g','g','P','-'],
+            "Dilute DEH": ['A','-','C','C','d','d','e','e','G','-','P','-'],
+            "Dilute Dove": ['a','a','C','ch','d','d','E','-','G','-','p','p'],
+            "Dilute Ivory Cream": ['A','-','C','-','d','d','E','-','g','g','p','p'],
+            "Dilute LCP Agouti": ['A','-','cb','ch','d','d','E','-','G','-','P','-'],
+            "Dilute LCP DEH (BEW)": ['A','-','cb','ch','d','d','e','e','G','-','P','-'],
+            "Dilute LCP Grey Agouti": ['A','-','cb','ch','d','d','E','-','g','g','P','-'],
+            "Dilute LCP Nutmeg": ['a','a','cb','ch','d','d','e','e','G','-','P','-'],
+            "Dilute LCP Slate": ['a','a','cb','ch','d','d','E','-','g','g','P','-'],
+            "Dilute Light DEH": ['A','-','C','ch','d','d','e','e','G','-','P','-'],
+            "Dilute Light Grey Agouti": ['A','-','C','ch','d','d','E','-','g','g','P','-'],
+            "Dilute Light Nutmeg": ['a','a','C','ch','d','d','e','e','G','-','P','-'],
+            "Dilute Light Polar Fox": ['A','-','C','ch','d','d','e','e','g','g','P','-'],
+            "Dilute Light REH": ['A','-','C','ch','d','d','e','e','G','-','p','p'],
+            "Dilute Light Saffron": ['a','a','C','cb','d','d','e','e','G','-','p','p'],
+            "Dilute Light Silver Nutmeg": ['a','a','C','ch','d','d','e','e','g','g','P','-'],
+            "Dilute Lilac": ['a','a','C','C','d','d','E','-','G','-','p','p'],
+            "Dilute Nutmeg": ['a','a','C','C','d','d','e','e','G','-','P','-'],
+            "Dilute Polar Fox": ['A','-','C','C','d','d','e','e','g','g','P','-'],
+            "Dilute REH": ['A','-','C','C','d','d','e','e','G','-','p','p'],
+            "Dilute Saffron": ['a','a','C','C','d','d','e','e','G','-','p','p'],
+            "Dilute Sapphire": ['a','a','C','cb','d','d','E','-','G','-','p','p'],
+            "Dilute Siamese": ['a','a','cb','ch','d','d','E','-','G','-','P','-'],
+            "Dilute Silver Nutmeg": ['a','a','C','C','d','d','e','e','g','g','P','-'],
+            "Dilute Silver Nutmeg RE": ['a','a','C','-','d','d','e','e','g','g','p','p'],
+            "Dilute Slate": ['a','a','C','-','d','d','E','-','g','g','P','-'],
+            "Dilute Topaz": ['A','-','C','cb','d','d','E','-','G','-','p','p'],
+            "Dove": ['a','a','C','ch','D','-','E','-','G','-','p','p'],
+            "Grey Agouti": ['A','-','C','C','D','-','E','-','g','g','P','-'],
+            "Ivory Cream": ['A','-','C','-','D','-','E','-','g','g','p','p'],
+            "LCP Agouti": ['A','-','cb','ch','D','-','E','-','G','-','P','-'],
+            "LCP DEH (BEW)": ['A','-','cb','ch','D','-','e','e','G','-','P','-'],
+            "LCP Grey Agouti": ['A','-','cb','ch','D','-','E','-','g','g','P','-'],
+            "LCP Nutmeg": ['a','a','cb','ch','D','-','e','e','G','-','P','-'],
+            "LCP Polar Fox (BEW)": ['-','-','cb','ch','-','-','e','e','g','g','P','-'],
+            "LCP Schimmel (BEW)": ['-','-','cb','ch','-','-','ef','ef','G','-','P','-'],
+            "LCP Slate": ['a','a','cb','ch','D','-','E','-','g','g','P','-'],
+            "Light DEH": ['A','-','C','ch','D','-','e','e','G','-','P','-'],
+            "Light Grey Agouti": ['A','-','C','ch','D','-','E','-','g','g','P','-'],
+            "Light Nutmeg": ['a','a','C','ch','D','-','e','e','G','-','P','-'],
+            "Light Polar Fox": ['A','-','C','ch','D','-','e','e','g','g','P','-'],
+            "Light REH": ['A','-','C','ch','D','-','e','e','G','-','p','p'],
+            "Light Saffron": ['a','a','C','cb','D','-','e','e','G','-','p','p'],
+            "Light Silver Nutmeg": ['a','a','C','ch','D','-','e','e','g','g','P','-'],
+            "Lilac": ['a','a','C','C','D','-','E','-','G','-','p','p'],
+            "Nutmeg": ['a','a','C','C','D','-','e','e','G','-','P','-'],
+            "Orange Mold (Schimmel)": ['-','-','C','-','-','-','ef','ef','G','-','P','-'],
+            "Pink Eyed White": ['-','-','ch','ch','-','-','-','-','-','-','p','p'],
+            "Polar Fox": ['A','-','C','C','D','-','e','e','g','g','P','-'],
+            "Red Eyed Honey (Yellow Fox)": ['A','-','C','C','D','-','e','e','G','-','p','p'],
+            "Red Eyed Schimmel": ['-','-','C','-','-','-','ef','ef','G','-','p','p'],
+            "Ruby Eyed White": ['a','a','C','-','-','-','E','-','g','g','p','p'],
+            "Saffron (Red Fox)": ['a','a','C','C','D','-','e','e','G','-','p','p'],
+            "Sapphire": ['a','a','C','cb','D','-','E','-','G','-','p','p'],
+            "Siamese": ['a','a','cb','ch','D','-','E','-','G','-','P','-'],
+            "Silver Nutmeg": ['a','a','C','C','D','-','e','e','g','g','P','-'],
+            "Silver Nutmeg RE": ['a','a','C','-','D','-','e','e','g','g','p','p'],
+            "Silver Red Eyed Schimmel (PEW)": ['-','-','C','-','-','-','ef','ef','g','g','p','p'],
+            "Silver Schimmel (BEW)": ['-','-','C','-','-','-','ef','ef','g','g','P','-'],
+            "Slate": ['a','a','C','-','D','-','E','-','g','g','P','-'],
+            "Smoke (Dilute Grey Agouti)": ['A','-','C','C','d','d','E','-','g','g','P','-'],
+            "Topaz": ['A','-','C','cb','D','-','E','-','G','-','p','p']
+        };
+
+        // Extra genotypes that give a colour already in the list (seen in the old app's crosses).
+        const EXTRA_COMBINATIONS = [
+            ["Pink Eyed White", ['-','-','cb','cb','-','-','-','-','-','-','p','p']],
+            ["Pink Eyed White", ['-','-','cb','ch','-','-','-','-','-','-','p','p']],
+            ["Silver Schimmel (BEW)", ['-','-','cb','cb','-','-','ef','ef','g','g','P','-']],
+            ["Silver Schimmel (BEW)", ['-','-','cb','ch','-','-','ef','ef','g','g','P','-']]
+        ];
+
+        const LOCI = ['a', 'c', 'd', 'e', 'g', 'p'];
+
+        const LOCUS_ALLELES = {
+            'a': ['A', 'a'],
+            'c': ['C', 'cb', 'ch'],
+            'd': ['D', 'd'],
+            'e': ['E', 'e', 'ef'],
+            'g': ['G', 'g'],
+            'p': ['P', 'p']
+        };
+
+        const ALLELE_ORDER = { 'A':1, 'a':2, 'C':1, 'cb':2, 'ch':3, 'D':1, 'd':2, 'E':1, 'e':2, 'ef':3, 'G':1, 'g':2, 'P':1, 'p':2 };
+
+        const COLOR_NAMES = Object.keys(PRESET_GENOTYPES);
+        const COLOR_PATTERNS = COLOR_NAMES.map(n => [n, PRESET_GENOTYPES[n]]).concat(EXTRA_COMBINATIONS);
+        const matchCache = new Map();
+
+        let isSyncing = false;
+
+        function setupUI() {
+            const presets = ["h_preset", "m_preset"];
+            presets.forEach(id => {
+                const select = document.getElementById(id);
+                Object.keys(PRESET_GENOTYPES).sort().forEach(key => {
+                    let opt = document.createElement("option");
+                    opt.value = key; opt.textContent = key;
+                    select.appendChild(opt);
+                });
+            });
+
+            const lociData = [
+                { label: "Mage (A)", key: "a" },
+                { label: "Jämnhet (c)", key: "c" },
+                { label: "Blekning (D)", key: "d" },
+                { label: "Gulhet (E)", key: "e" },
+                { label: "Gråhet (G)", key: "g" },
+                { label: "Ögon (P)", key: "p" }
+            ];
+
+            ['h', 'm'].forEach(p => {
+                const grid = document.getElementById(p + '_grid');
+                lociData.forEach(locus => {
+                    let box = document.createElement("div");
+                    box.className = "locus-pair";
+                    let options = LOCUS_ALLELES[locus.key].map(o => `<option value="${o}">${o}</option>`).join('') + `<option value="-">-</option>`;
+                    box.innerHTML = `<span class="locus-label">${locus.label}</span>
+                        <div class="select-row">
+                            <select id="${p}_${locus.key}1" class="gene-select" onchange="syncFromBoxes('${p}')">${options}</select>
+                            <select id="${p}_${locus.key}2" class="gene-select" onchange="syncFromBoxes('${p}')">${options}</select>
+                        </div>`;
+                    grid.appendChild(box);
+                });
+            });
+
+            document.getElementById('h_preset').value = "Black"; applyPreset('h');
+            document.getElementById('m_preset').value = "Dove"; applyPreset('m');
+        }
+
+        function applyPreset(p) {
+            if (isSyncing) return;
+            let color = document.getElementById(p + '_preset').value;
+            if (!color) return;
+            let genes = PRESET_GENOTYPES[color];
+            if (!genes) return;
+            LOCI.forEach((key, idx) => {
+                document.getElementById(`${p}_${key}1`).value = genes[idx * 2];
+                document.getElementById(`${p}_${key}2`).value = genes[idx * 2 + 1];
+            });
+        }
+
+        function readPattern(p) {
+            let pattern = [];
+            LOCI.forEach(k => {
+                pattern.push(document.getElementById(`${p}_${k}1`).value);
+                pattern.push(document.getElementById(`${p}_${k}2`).value);
+            });
+            return pattern;
+        }
+
+        function sortPair(x, y) {
+            return (ALLELE_ORDER[x] || 0) <= (ALLELE_ORDER[y] || 0) ? [x, y] : [y, x];
+        }
+
+        function genoKey(geno) {
+            return geno.map(pair => pair.join('')).join(' ');
+        }
+
+        // A pattern is 12 alleles (2 per locus). "X -" = X plus any allele, "- -" = any pair, "X Y" = exactly X/Y.
+        // Pairs that look the same: e/ef looks like ee, and C/cb and C/ch both give the Light colours.
+        const LOOKALIKE_PAIRS = { 'e,e': ['e,ef'], 'C,ch': ['C,cb'], 'C,cb': ['C,ch'] };
+
+        // Returns -1 if the genotype does not fit the pattern, otherwise how exactly it fits.
+        function matchScore(pattern, geno) {
+            let score = 0;
+            for (let i = 0; i < LOCI.length; i++) {
+                let p1 = pattern[i * 2], p2 = pattern[i * 2 + 1];
+                let [x, y] = geno[i];
+                if (p1 === '-' && p2 === '-') continue;
+                if (p1 === '-' || p2 === '-') {
+                    let fixed = p1 === '-' ? p2 : p1;
+                    if (x !== fixed && y !== fixed) return -1;
+                    score += 1;
+                } else {
+                    let wanted = sortPair(p1, p2).join(','), actual = x + ',' + y;
+                    if (wanted === actual) score += 2;
+                    else if ((LOOKALIKE_PAIRS[wanted] || []).includes(actual)) score += 1.5;
+                    else return -1;
+                }
+            }
+            return score;
+        }
+
+        // The colour is the preset whose pattern fits the genotype most exactly.
+        // So a genotype only falls under a "C -" colour if no colour exists that requires that exact C pair.
+        function getMatch(geno) {
+            let key = genoKey(geno);
+            if (matchCache.has(key)) return matchCache.get(key);
+            let best = { name: null, pattern: null }, bestScore = -1;
+            for (let [name, pattern] of COLOR_PATTERNS) {
+                let score = matchScore(pattern, geno);
+                if (score > bestScore) { best = { name, pattern }; bestScore = score; }
+            }
+            matchCache.set(key, best);
+            return best;
+        }
+
+        function getColor(geno) {
+            return getMatch(geno).name;
+        }
+
+        // A dash is never a hidden gene: "X -" counts as X X, and "- -" as two dominant genes.
+        // Hidden genes only count when the user types them into the boxes.
+        function representativeGenotype(pattern) {
+            return LOCI.map((k, i) => {
+                let p1 = pattern[i * 2], p2 = pattern[i * 2 + 1];
+                if (p1 === '-' && p2 === '-') return [LOCUS_ALLELES[k][0], LOCUS_ALLELES[k][0]];
+                if (p1 === '-' || p2 === '-') { let f = p1 === '-' ? p2 : p1; return [f, f]; }
+                return sortPair(p1, p2);
+            });
+        }
+
+        function samePattern(a, b) {
+            for (let i = 0; i < LOCI.length; i++) {
+                let x = [a[i * 2], a[i * 2 + 1]].sort().join(','), y = [b[i * 2], b[i * 2 + 1]].sort().join(',');
+                if (x !== y) return false;
+            }
+            return true;
+        }
+
+        function colorOfPattern(pattern) {
+            let exact = COLOR_NAMES.find(n => samePattern(PRESET_GENOTYPES[n], pattern));
+            if (exact) return exact;
+            return getColor(representativeGenotype(pattern));
+        }
+
+
+        function syncFromBoxes(p) {
+            if (isSyncing) return;
+            isSyncing = true;
+            document.getElementById(p + '_preset').value = colorOfPattern(readPattern(p)) || "";
+            isSyncing = false;
+        }
+
+        // Each possible parent genotype is weighted equally.
+        function gameteDistribution(genos) {
+            let dist = new Map();
+            let weight = 1 / genos.length;
+            genos.forEach(geno => {
+                let partial = [[[], weight]];
+                geno.forEach(pair => {
+                    let next = [];
+                    partial.forEach(([alleles, w]) => pair.forEach(al => next.push([[...alleles, al], w / 2])));
+                    partial = next;
+                });
+                partial.forEach(([alleles, w]) => {
+                    let key = alleles.join('|');
+                    dist.set(key, (dist.get(key) || 0) + w);
+                });
+            });
+            return dist;
+        }
+
+        function formatGenotype(geno) {
+            let pattern = getMatch(geno).pattern;
+            return geno.map((pair, i) => {
+                if (pattern) {
+                    let p1 = pattern[i * 2], p2 = pattern[i * 2 + 1];
+                    if (p1 === '-' && p2 === '-') return '--';
+                    if (p1 === '-' || p2 === '-') return (p1 === '-' ? p2 : p1) + '-';
+                }
+                return pair.join('');
+            }).join(' ');
+        }
+
+        function calculate() {
+            let fatherDist = gameteDistribution([representativeGenotype(readPattern('h'))]);
+            let motherDist = gameteDistribution([representativeGenotype(readPattern('m'))]);
+
+            let offspring = new Map();
+            fatherDist.forEach((fw, fKey) => {
+                let fAlleles = fKey.split('|');
+                motherDist.forEach((mw, mKey) => {
+                    let mAlleles = mKey.split('|');
+                    let geno = LOCI.map((k, i) => sortPair(fAlleles[i], mAlleles[i]));
+                    let key = genoKey(geno);
+                    let entry = offspring.get(key) || { geno, prob: 0 };
+                    entry.prob += fw * mw;
+                    offspring.set(key, entry);
+                });
+            });
+
+            const UNKNOWN = "Okänd färg (genotypen finns inte i färglistan)";
+            let counts = {};
+            offspring.forEach(({ geno, prob }) => {
+                let color = getColor(geno);
+                let name = color || UNKNOWN;
+                if (!counts[name]) counts[name] = { total: 0, genos: new Set() };
+                counts[name].total += prob;
+                counts[name].genos.add(formatGenotype(geno));
+            });
+
+            const MAX_GENOS = 12;
+            let res = Object.keys(counts).map(name => {
+                let genos = Array.from(counts[name].genos);
+                let text = genos.slice(0, MAX_GENOS).join(', ');
+                if (genos.length > MAX_GENOS) text += ` … (+${genos.length - MAX_GENOS} till)`;
+                return { name, pct: counts[name].total * 100, genos: text };
+            });
+            res.sort((x, y) => y.pct - x.pct);
+
+            let html = "<h2>Möjliga ungar:</h2>";
+            for (let item of res) {
+                html += `<div class="result-item">
+                    <div class="color-info">
+                        <strong>${item.name}</strong>
+                        <span class="genocode">${item.genos}</span>
+                    </div>
+                    <span class="percentage">${item.pct.toFixed(2)}%</span>
+                </div>`;
+            }
+            document.getElementById('results').innerHTML = html;
+        }
+
+        window.onload = setupUI;
+    </script>
+</body>
+</html>
